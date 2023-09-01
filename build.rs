@@ -215,23 +215,57 @@ fn prebuilt_protoc_url() -> (PathBuf, String) {
 	(PathBuf::from(prebuilt_archive), prebuilt_url)
 }
 
+// #[cfg(feature = "download-binaries")]
+// fn download<P>(source_url: &str, target_file: P)
+// where
+// P: AsRef<Path>
+// {
+// let resp = ureq::get(source_url)
+// .timeout(std::time::Duration::from_secs(1800))
+// .call()
+// .unwrap_or_else(|err| panic!("[ort] failed to download {source_url}: {err:?}"));
+//
+// let len = resp.header("Content-Length").and_then(|s| s.parse::<usize>().ok()).unwrap();
+// let mut reader = resp.into_reader();
+// FIXME: Save directly to the file
+// let mut buffer = vec![];
+// let read_len = reader.read_to_end(&mut buffer).unwrap();
+// assert_eq!(buffer.len(), len);
+// assert_eq!(buffer.len(), read_len);
+//
+// let f = fs::File::create(&target_file).unwrap();
+// let mut writer = io::BufWriter::new(f);
+// writer.write_all(&buffer).unwrap();
+// }
+
+use std::time::Duration;
+
+use reqwest::blocking::Client;
+
 #[cfg(feature = "download-binaries")]
 fn download<P>(source_url: &str, target_file: P)
 where
 	P: AsRef<Path>
 {
-	let resp = ureq::get(source_url)
-		.timeout(std::time::Duration::from_secs(1800))
-		.call()
-		.unwrap_or_else(|err| panic!("[ort] failed to download {source_url}: {err:?}"));
+	let client = Client::builder()
+		.timeout(Duration::from_secs(1800))
+		.build()
+		.unwrap_or_else(|err| panic!("[ort] failed to build client: {err}", err = err));
 
-	let len = resp.header("Content-Length").and_then(|s| s.parse::<usize>().ok()).unwrap();
-	let mut reader = resp.into_reader();
-	// FIXME: Save directly to the file
-	let mut buffer = vec![];
-	let read_len = reader.read_to_end(&mut buffer).unwrap();
-	assert_eq!(buffer.len(), len);
-	assert_eq!(buffer.len(), read_len);
+	let mut resp = client
+		.get(source_url)
+		.send()
+		.unwrap_or_else(|err| panic!("[ort] failed to download {source_url}: {err}", source_url = source_url, err = err));
+
+	let len = resp
+		.headers()
+		.get(reqwest::header::CONTENT_LENGTH)
+		.and_then(|s| s.to_str().ok())
+		.and_then(|s| s.parse::<usize>().ok())
+		.unwrap();
+
+	let mut buffer = vec![0; len];
+	resp.read_exact(&mut buffer).unwrap();
 
 	let f = fs::File::create(&target_file).unwrap();
 	let mut writer = io::BufWriter::new(f);
